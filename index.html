@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sam Voice Test</title>
+    <script src="https://unpkg.com/@daily-co/daily-js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #333; margin-bottom: 10px; font-size: 32px; }
+        .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+        .status {
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        .status.ready { background: #e3f2fd; color: #1976d2; }
+        .status.connecting { background: #fff3e0; color: #f57c00; }
+        .status.connected { background: #e8f5e9; color: #2e7d32; }
+        .status.error { background: #ffebee; color: #c62828; }
+        button {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-bottom: 10px;
+        }
+        button.primary { background: #667eea; color: white; }
+        button.primary:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        button.danger { background: #ef4444; color: white; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .info {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .info h3 {
+            color: #333;
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        .info-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            font-size: 14px;
+        }
+        #audioIndicator { display: none; text-align: center; padding: 20px; margin-top: 20px; }
+        #audioIndicator.active { display: block; }
+        .audio-wave { display: flex; justify-content: center; gap: 4px; margin-bottom: 10px; }
+        .audio-bar {
+            width: 4px; height: 20px; background: #667eea; border-radius: 2px;
+            animation: wave 1.2s ease-in-out infinite;
+        }
+        @keyframes wave { 0%, 100% { height: 20px; } 50% { height: 40px; } }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>🎤 Sam Voice Test</h1>
+        <p class="subtitle">Voice interview demo</p>
+        <div id="status" class="status ready">Ready to start</div>
+        <button id="startBtn" class="primary" onclick="start()">Start Interview</button>
+        <button id="stopBtn" class="danger" onclick="stop()" disabled>End Interview</button>
+        <div id="audioIndicator">
+            <div class="audio-wave">
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>                <div class="audio-bar"></div>
+            </div>
+            <div style="color: #666; font-size: 14px;">Listening...</div>
+        </div>
+        <div class="info">
+            <h3>Session Info</h3><div class="info-item"><span>Mode:</span><span id="modeValue">-</span></div>
+            <div class="info-item"><span>Session:</span><span id="sessionId">-</span></div>
+        </div>
+    </div>
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const ACCESS_TOKEN = urlParams.get('token');
+        const API_URL = 'https://sam-x-backend-production.up.railway.app';
+        let callFrame = null, sessionId = null;
+        
+        if (!ACCESS_TOKEN) alert('Add ?token=XXX to URL');
+        
+        function setStatus(msg, type = 'ready') {
+            const el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = `status ${type}`;
+        }
+        
+        async function start() {
+            try {
+                setStatus('Creating session...', 'connecting');
+                document.getElementById('startBtn').disabled = true;
+                
+                const res = await fetch(`${API_URL}/voice/session/create`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${ACCESS_TOKEN}`
+                    },
+                    body: JSON.stringify({})
+                });
+                
+                if (!res.ok) throw new Error((await res.json()).detail || 'Failed');
+                
+                const data = await res.json();
+                sessionId = data.session_id;
+                document.getElementById('sessionId').textContent = sessionId.slice(0, 8) + '...';
+                document.getElementById('modeValue').textContent = 'automatic';
+                
+                setStatus('Connecting...', 'connecting');
+                
+                callFrame = window.DailyIframe.createCallObject({
+                    audioSource: true,
+                    videoSource: false
+                });
+                
+                callFrame
+                    .on('joined-meeting', () => {
+                        setStatus('🎙️ Connected — speak naturally', 'connected');
+                        document.getElementById('stopBtn').disabled = false;
+                        document.getElementById('audioIndicator').classList.add('active');
+                    })
+                    .on('left-meeting', () => {
+                        setStatus('Disconnected', 'ready');
+                        cleanup();
+                    })
+                    .on('error', e => {
+                        setStatus(`Error: ${e.errorMsg}`, 'error');
+                        console.error(e);
+                    });
+                
+                await callFrame.join({ url: data.room_url });
+            } catch (error) {
+                setStatus(`Error: ${error.message}`, 'error');
+                document.getElementById('startBtn').disabled = false;
+            }
+        }
+        
+        async function stop() {
+            try {
+                if (callFrame) {
+                    await callFrame.leave();
+                    callFrame.destroy();
+                }
+                if (sessionId) {
+                    await fetch(`${API_URL}/voice/session/${sessionId}`, {
+                        method: 'DELETE',
+                        headers: { 'Authorization': `Bearer ${ACCESS_TOKEN}` }
+                    });
+                }
+                setStatus('Session ended', 'ready');
+                cleanup();
+            } catch (error) {
+                console.error(error);
+            }
+        }
+        
+        function cleanup() {
+            callFrame = null;
+            sessionId = null;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('audioIndicator').classList.remove('active');            document.getElementById('sessionId').textContent = '-';
+        }window.addEventListener('beforeunload', () => { if (sessionId) stop(); });
+    </script>
+</body>
+</html>
