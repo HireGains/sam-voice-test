@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sam Voice Test</title>
+    <script src="https://unpkg.com/@daily-co/daily-js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .card {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #333; margin-bottom: 10px; font-size: 32px; }
+        .subtitle { color: #666; margin-bottom: 30px; font-size: 14px; }
+        .status {
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            font-weight: 500;
+            text-align: center;
+        }
+        .status.ready { background: #e3f2fd; color: #1976d2; }
+        .status.connecting { background: #fff3e0; color: #f57c00; }
+        .status.connected { background: #e8f5e9; color: #2e7d32; }
+        .status.error { background: #ffebee; color: #c62828; }
+        button {
+            width: 100%;
+            padding: 16px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        button.primary { background: #667eea; color: white; }
+        button.danger { background: #ef4444; color: white; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .info {
+            background: #f8f9fa;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+        .info h3 { color: #333; font-size: 14px; margin-bottom: 10px; }
+        .info-item { display: flex; justify-content: space-between; margin: 8px 0; font-size: 14px; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Sam Voice Test</h1>
+        <p class="subtitle">Echo bot test - Sam will repeat what you say</p>
+        <div id="status" class="status ready">Ready to start</div>
+        <button id="startBtn" class="primary" onclick="start()">Start Test</button>
+        <button id="stopBtn" class="danger" onclick="stop()" disabled>End Test</button>
+        <div class="info">
+            <h3>SESSION INFO</h3>
+            <div class="info-item"><span>Mode:</span><span id="modeValue">-</span></div>
+            <div class="info-item"><span>Session:</span><span id="sessionId">-</span></div>
+        </div>
+    </div>
+    <script>
+        var API_URL = 'https://sam-x-backend-production.up.railway.app';
+        var ACCESS_TOKEN = '8sDnK79PFsmIBBmGd9BscMhyxzMkuaQVYyhVT3o6NZs';
+        var callFrame = null;
+        var sessionId = null;
+        
+        function setStatus(msg, type) {
+            var el = document.getElementById('status');
+            el.textContent = msg;
+            el.className = 'status ' + (type || 'ready');
+        }
+        
+        function start() {
+            setStatus('Creating session...', 'connecting');
+            document.getElementById('startBtn').disabled = true;
+            
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', API_URL + '/voice/echo/start', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.setRequestHeader('Authorization', 'Bearer ' + ACCESS_TOKEN);
+            
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    var data = JSON.parse(xhr.responseText);
+                    sessionId = data.session_id;
+                    document.getElementById('sessionId').textContent = sessionId.substring(0, 8) + '...';
+                    document.getElementById('modeValue').textContent = 'automatic (VAD)';
+                    
+                    setStatus('Bot is joining room...', 'connecting');
+                    
+                    setTimeout(function() {
+                        setStatus('Connecting...', 'connecting');
+                        
+                        callFrame = window.DailyIframe.createCallObject({
+                            audioSource: true,
+                            videoSource: false
+                        });
+                        
+                        callFrame
+                            .on('joined-meeting', function() {
+                                setStatus('Connected - speak naturally', 'connected');
+                                document.getElementById('stopBtn').disabled = false;
+                            })
+                            .on('left-meeting', function() {
+                                setStatus('Disconnected', 'ready');
+                                cleanup();
+                            })
+                            .on('error', function(e) {
+                                setStatus('Error: ' + e.errorMsg, 'error');
+                            });
+                        
+                        callFrame.join({ url: data.room_url });
+                    }, 3000);
+                } else {
+                    setStatus('Error: ' + xhr.responseText, 'error');
+                    document.getElementById('startBtn').disabled = false;
+                }
+            };
+            
+            xhr.onerror = function() {
+                setStatus('Error: Network error', 'error');
+                document.getElementById('startBtn').disabled = false;
+            };
+            
+            xhr.send(JSON.stringify({}));
+        }
+        
+        function stop() {
+            if (callFrame) {
+                callFrame.leave();
+                callFrame.destroy();
+            }
+            if (sessionId) {
+                var xhr = new XMLHttpRequest();
+                xhr.open('DELETE', API_URL + '/voice/echo/' + sessionId, true);
+                xhr.setRequestHeader('Authorization', 'Bearer ' + ACCESS_TOKEN);
+                xhr.send();
+            }
+            setStatus('Session ended', 'ready');
+            cleanup();
+        }
+        
+        function cleanup() {
+            callFrame = null;
+            sessionId = null;
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('sessionId').textContent = '-';
+            document.getElementById('modeValue').textContent = '-';
+        }
+    </script>
+</body>
+</html>
