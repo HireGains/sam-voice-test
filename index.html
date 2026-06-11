@@ -33,7 +33,6 @@
             font-size: 14px;
             font-weight: 500;
             text-align: center;
-            transition: all 0.3s ease;
         }
         .status.ready { background: #e3f2fd; color: #1976d2; }
         .status.connecting { background: #fff3e0; color: #f57c00; }
@@ -47,15 +46,10 @@
             font-size: 16px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s ease;
             margin-bottom: 10px;
         }
         button.primary { background: #667eea; color: white; }
-        button.primary:hover:not(:disabled) {
-            background: #5568d3;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
-        }
+        button.primary:hover:not(:disabled) { background: #5568d3; }
         button.danger { background: #ef4444; color: white; }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
         .info {
@@ -64,44 +58,25 @@
             padding: 20px;
             margin-top: 20px;
         }
-        .info h3 {
-            color: #333;
-            font-size: 14px;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-        }
+        .info h3 { color: #333; font-size: 14px; margin-bottom: 10px; }
         .info-item {
             display: flex;
             justify-content: space-between;
             margin: 8px 0;
             font-size: 14px;
         }
-        #audioIndicator { display: none; text-align: center; padding: 20px; margin-top: 20px; }
-        #audioIndicator.active { display: block; }
-        .audio-wave { display: flex; justify-content: center; gap: 4px; margin-bottom: 10px; }
-        .audio-bar {
-            width: 4px; height: 20px; background: #667eea; border-radius: 2px;
-            animation: wave 1.2s ease-in-out infinite;
-        }
-        @keyframes wave { 0%, 100% { height: 20px; } 50% { height: 40px; } }
     </style>
 </head>
 <body>
     <div class="card">
-        <h1>🎤 Sam Voice Test</h1>
-        <p class="subtitle">Echo bot test — Sam will repeat what you say</p>
+        <h1>Sam Voice Test</h1>
+        <p class="subtitle">Echo bot test - Sam will repeat what you say</p>
         <div id="status" class="status ready">Ready to start</div>
-        <button id="startBtn" class="primary" onclick="start()">Start Interview</button>
-        <button id="stopBtn" class="danger" onclick="stop()" disabled>End Interview</button>
-        <div id="audioIndicator">
-            <div class="audio-wave">
-                <div class="audio-bar"></div>
-                <div class="audio-bar"></div>                <div class="audio-bar"></div>
-            </div>
-            <div style="color: #666; font-size: 14px;">Listening...</div>
-        </div>
+        <button id="startBtn" class="primary" onclick="start()">Start Test</button>
+        <button id="stopBtn" class="danger" onclick="stop()" disabled>End Test</button>
         <div class="info">
-            <h3>Session Info</h3><div class="info-item"><span>Mode:</span><span id="modeValue">-</span></div>
+            <h3>SESSION INFO</h3>
+            <div class="info-item"><span>Mode:</span><span id="modeValue">-</span></div>
             <div class="info-item"><span>Session:</span><span id="sessionId">-</span></div>
         </div>
     </div>
@@ -109,14 +84,17 @@
         const urlParams = new URLSearchParams(window.location.search);
         const ACCESS_TOKEN = urlParams.get('token');
         const API_URL = 'https://sam-x-backend-production.up.railway.app';
-        let callFrame = null, sessionId = null;
+        let callFrame = null;
+        let sessionId = null;
         
-        if (!ACCESS_TOKEN) alert('Add ?token=XXX to URL');
+        if (!ACCESS_TOKEN) {
+            alert('Add ?token=YOUR_TOKEN to URL');
+        }
         
-        function setStatus(msg, type = 'ready') {
+        function setStatus(msg, type) {
             const el = document.getElementById('status');
             el.textContent = msg;
-            el.className = `status ${type}`;
+            el.className = 'status ' + (type || 'ready');
         }
         
         async function start() {
@@ -124,23 +102,26 @@
                 setStatus('Creating session...', 'connecting');
                 document.getElementById('startBtn').disabled = true;
                 
-                const res = await fetch(`${API_URL}/voice/echo/start`, {
+                const res = await fetch(API_URL + '/voice/echo/start', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${ACCESS_TOKEN}`
+                        'Authorization': 'Bearer ' + ACCESS_TOKEN
                     },
                     body: JSON.stringify({})
                 });
                 
-                if (!res.ok) throw new Error((await res.json()).detail || 'Failed');
+                if (!res.ok) {
+                    const error = await res.text();
+                    throw new Error('API error: ' + error);
+                }
                 
                 const data = await res.json();
                 sessionId = data.session_id;
-                document.getElementById('sessionId').textContent = sessionId.slice(0, 8) + '...';
-                document.getElementById('modeValue').textContent = 'automatic';
+                document.getElementById('sessionId').textContent = sessionId.substring(0, 8) + '...';
+                document.getElementById('modeValue').textContent = 'automatic (VAD)';
                 
-                setStatus('🤖 Bot is joining room...', 'connecting');
+                setStatus('Bot is joining room...', 'connecting');
                 
                 // Wait for bot to join first
                 await new Promise(r => setTimeout(r, 3000));
@@ -153,24 +134,24 @@
                 });
                 
                 callFrame
-                    .on('joined-meeting', () => {
-                        setStatus('🎙️ Connected — speak naturally', 'connected');
+                    .on('joined-meeting', function() {
+                        setStatus('Connected - speak naturally', 'connected');
                         document.getElementById('stopBtn').disabled = false;
-                        document.getElementById('audioIndicator').classList.add('active');
                     })
-                    .on('left-meeting', () => {
+                    .on('left-meeting', function() {
                         setStatus('Disconnected', 'ready');
                         cleanup();
                     })
-                    .on('error', e => {
-                        setStatus(`Error: ${e.errorMsg}`, 'error');
+                    .on('error', function(e) {
+                        setStatus('Error: ' + e.errorMsg, 'error');
                         console.error(e);
                     });
                 
                 await callFrame.join({ url: data.room_url });
             } catch (error) {
-                setStatus(`Error: ${error.message}`, 'error');
+                setStatus('Error: ' + error.message, 'error');
                 document.getElementById('startBtn').disabled = false;
+                console.error(error);
             }
         }
         
@@ -181,9 +162,9 @@
                     callFrame.destroy();
                 }
                 if (sessionId) {
-                    await fetch(`${API_URL}/voice/echo/${sessionId}`, {
+                    await fetch(API_URL + '/voice/echo/' + sessionId, {
                         method: 'DELETE',
-                        headers: { 'Authorization': `Bearer ${ACCESS_TOKEN}` }
+                        headers: { 'Authorization': 'Bearer ' + ACCESS_TOKEN }
                     });
                 }
                 setStatus('Session ended', 'ready');
@@ -198,8 +179,13 @@
             sessionId = null;
             document.getElementById('startBtn').disabled = false;
             document.getElementById('stopBtn').disabled = true;
-            document.getElementById('audioIndicator').classList.remove('active');            document.getElementById('sessionId').textContent = '-';
-        }window.addEventListener('beforeunload', () => { if (sessionId) stop(); });
+            document.getElementById('sessionId').textContent = '-';
+            document.getElementById('modeValue').textContent = '-';
+        }
+        
+        window.addEventListener('beforeunload', function() {
+            if (sessionId) stop();
+        });
     </script>
 </body>
 </html>
